@@ -2039,6 +2039,11 @@ extern Datum gs_update_sql_limit(PG_FUNCTION_ARGS);
 extern Datum gs_delete_sql_limit(PG_FUNCTION_ARGS);
 extern Datum gs_select_sql_limit(PG_FUNCTION_ARGS);
 extern Datum gs_select_sql_limit_all(PG_FUNCTION_ARGS);
+extern Datum gs_create_sql_limit_v2(PG_FUNCTION_ARGS);
+extern Datum gs_update_sql_limit_v2(PG_FUNCTION_ARGS);
+extern Datum gs_delete_sql_limit_v2(PG_FUNCTION_ARGS);
+extern Datum gs_select_sql_limit_v2(PG_FUNCTION_ARGS);
+extern Datum gs_select_sql_limit_all_v2(PG_FUNCTION_ARGS);
 
 /* int8.cpp */
 extern Datum int8in(PG_FUNCTION_ARGS);

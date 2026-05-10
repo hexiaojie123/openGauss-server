@@ -506,3 +506,23 @@ gs_delete_sql_limit_v2(limit_id)
 3. 实现 Fast Path 摘要和 syscache callback。
 4. 新增管理函数（`_v2` 后缀），操作新表。
 5. 完成回归测试。
+
+## 17. 实现进度
+
+- **Task Group 1 (Catalog & Syscache)**: Done (commit 5ae73f64f)
+- **Task Group 2 (Stats HTAB)**: Done (commit 7c69183c7)
+- **Task Group 3 (Fast Path)**: Done (commit 7c69183c7)
+- **Task Group 4 (Runtime Matching)**: Done (commit 7c69183c7)
+- **Task Group 5 (Management Functions)**: Done (commit 7c69183c7)
+- **Task Group 6 (Upgrade Scripts)**: Done (commit 7c69183c7)
+- **Task Group 7 (Integration Tests)**: Done - all tests pass
+
+### 已知问题
+
+1. **Syscache ID 限制**: 原设计使用 `GSSQLLIMITRULE` syscache 条目，但 openGauss 的 syscache ID 存储在 `int8` 中（最大 127），而当前已有 146 个条目，超出限制（`inval.cpp` 中有 `id < 0x7f` 断言）。已移除 syscache 条目，改用直接 systable scan + 索引扫描。
+2. **BKI 生成**: `gs_sql_limit_rule.h` 中的 `CATALOG()` 宏逗号后不能有空格（`CATALOG(gs_sql_limit_rule,9900)` 而非 `CATALOG(gs_sql_limit_rule, 9900)`），否则 genbki.pl 无法识别。
+3. **CMakeLists.txt**: 需要在 `POSTGRES_BKI_SRCS_S` 中添加 `@gs_sql_limit_rule.h`。
+4. **MOT JIT 链接**: 预存在的 `std::__throw_bad_array_new_length()` 链接错误，通过添加 `jit_stub.cpp` 解决。
+5. **libstdc++ 版本**: binarylibs 的 GCC 10.3 libstdc++ 缺少 `GLIBCXX_3.4.29`，需在 `LD_LIBRARY_PATH` 中优先使用系统 `/usr/lib64`。
+6. **Fast Path 回调**: 改用 `CacheRegisterSessionRelcacheCallback` 替代 `CacheRegisterSessionSyscacheCallback`，在 `gs_sql_limit_rule` 表变更时标记 fast path 为 dirty。
+7. **enable_sql_limit**: 为 SIGHUP 级别 GUC，不能在会话中 SET，需在 `postgresql.conf` 中配置。

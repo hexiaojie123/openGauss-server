@@ -78,6 +78,7 @@ enum SysCacheIdentifier {
     GLOBALSETTINGOID,
     GSCLPROCID,
     GSCLPROCOID,
+    GSSQLLIMITRULE,
     JOBARGUMENTNAME,
     JOBARGUMENTPOSITION,
     JOBATTRIBUTENAME,
@@ -176,8 +177,7 @@ enum SysCacheIdentifier {
     DBPRIVOID,
     DBPRIVROLE,
     DBPRIVROLEPRIV,
-    SETTYPOIDNAME,
-    GSSQLLIMITRULE
+    SETTYPOIDNAME
 };
 struct cachedesc {
     Oid reloid;   /* OID of the relation being cached */

@@ -1395,6 +1395,13 @@ typedef struct knl_g_sqlLimit_context {
     uint32 entryCount;
     TransactionId processedXmin;
     bool cacheInited;
+
+    /* V2: syscache-based SQL limit fields */
+    HTAB* statsHTAB;
+    HTAB* fastPathHTAB;
+    MemoryContext statsCxt;
+    pg_atomic_uint64 v2EntryIdSequence;
+    bool v2Inited;
 } knl_g_sqlLimit_context;
 
 typedef struct knl_g_abo_context {

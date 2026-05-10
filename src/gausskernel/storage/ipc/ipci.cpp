@@ -91,6 +91,7 @@
 #include "executor/node/nodeShareInputScan.h"
 #endif
 #include "access/datavec/utils.h"
+#include "workload/sql_limit_v2.h"
 
 extern void CalcMaxBackends(void);
 #ifdef ENABLE_MULTIPLE_NODES
@@ -468,6 +469,10 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
     InitDummyServrCache();
 
     LsnXlogFlushChkShmInit();
+
+    /* V2 SQL limit stats and fast path HTAB */
+    InitSqlLimitV2StatsHTAB();
+    InitSqlLimitV2FastPathHTAB();
 
     ThreadPageRepairedHashTableInit();
     initRepairBadBlockStat();

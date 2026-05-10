@@ -1,0 +1,637 @@
+You are now connected to database "postgres" as user "shangshanfei".
+ gs_delete_sql_limit_v2 
+------------------------
+(0 rows)
+
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:8: NOTICE:  table "sql_limit_v2_tbl" does not exist, skipping
+DROP TABLE
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:9: NOTICE:  role "sl_v2_user" does not exist, skipping
+DROP ROLE
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:10: NOTICE:  role "sl_v2_other" does not exist, skipping
+DROP ROLE
+CREATE TABLE
+INSERT 0 100
+CREATE ROLE
+CREATE ROLE
+GRANT
+GRANT
+ table_has_columns 
+-------------------
+ t
+(1 row)
+
+ has_unique_index 
+------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    203
+(1 row)
+
+ limit_name  | enable | max_concurrency | limit_type | keyword | rule_version | users | hash | unique_sql_id 
+-------------+--------+-----------------+------------+---------+--------------+-------+------+---------------
+ crud_select | t      |               2 | select     |         |            1 |       |    0 |             0
+(1 row)
+
+ limit_id | limit_name  | enable | max_concurrency | limit_type | keyword | rule_version | hit_count | reject_count | curr_concurrency 
+----------+-------------+--------+-----------------+------------+---------+--------------+-----------+--------------+------------------
+      203 | crud_select | t      |               2 | select     |         |            1 |         0 |            0 |                0
+(1 row)
+
+ gs_update_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+     limit_name      | max_concurrency | rule_version 
+---------------------+-----------------+--------------
+ crud_select_renamed |               5 |            2
+(1 row)
+
+ gs_update_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+   limit_name   | max_concurrency | rule_version 
+----------------+-----------------+--------------
+ crud_select_v3 |               3 |            3
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ rules_after_delete 
+--------------------
+                  0
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    204
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    205
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    206
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    207
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    208
+(1 row)
+
+ limit_name  | limit_type | max_concurrency 
+-------------+------------+-----------------
+ type_delete | delete     |              10
+ type_insert | insert     |              10
+ type_select | select     |              10
+ type_sqlid  | sqlId      |              10
+ type_update | update     |              10
+(5 rows)
+
+ limit_name | has_hash | unique_sql_id 
+------------+----------+---------------
+ type_sqlid | t        |         98765
+(1 row)
+
+ limit_name  | hash | unique_sql_id 
+-------------+------+---------------
+ type_delete |    0 |             0
+ type_insert |    0 |             0
+ type_select |    0 |             0
+ type_update |    0 |             0
+(4 rows)
+
+SET
+ count 
+-------
+     9
+(1 row)
+
+INSERT 0 1
+UPDATE 1
+DELETE 1
+RESET
+ limit_name  | limit_type | hit_count | reject_count | curr_concurrency 
+-------------+------------+-----------+--------------+------------------
+ type_delete | delete     |         1 |            0 |                0
+ type_insert | insert     |         1 |            0 |                0
+ type_select | select     |         1 |            0 |                0
+ type_sqlid  | sqlId      |         0 |            0 |                0
+ type_update | update     |         1 |            0 |                0
+(5 rows)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+ t
+ t
+ t
+ t
+(5 rows)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    209
+(1 row)
+
+SET
+ kw_empty_test 
+---------------
+             1
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         1
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    210
+(1 row)
+
+SET
+ count 
+-------
+     1
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         1
+(1 row)
+
+SET
+ no_keyword_match 
+------------------
+                2
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         1
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    211
+(1 row)
+
+SET
+ count 
+-------
+     1
+(1 row)
+
+ count 
+-------
+   867
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         2
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    212
+(1 row)
+
+ limit_name | has_hash | unique_sql_id 
+------------+----------+---------------
+ sqlid_111  | t        |           111
+(1 row)
+
+SET
+ no_sqlid_match 
+----------------
+              3
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         0
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    213
+(1 row)
+
+SET
+ expired_rule_no_match 
+-----------------------
+                     4
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         0
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    214
+(1 row)
+
+SET
+ future_rule_no_match 
+----------------------
+                    5
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         0
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    215
+(1 row)
+
+SET
+ open_end_match 
+----------------
+              6
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         1
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    216
+(1 row)
+
+SET
+ user_match 
+------------
+          7
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         1
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    217
+(1 row)
+
+SET
+ other_user_no_match 
+---------------------
+                   8
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         0
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    218
+(1 row)
+
+SET
+ multi_user_match 
+------------------
+                9
+(1 row)
+
+RESET
+ hit_count 
+-----------
+         1
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    219
+(1 row)
+
+ superuser_bypass 
+------------------
+               10
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+BEGIN
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:237: ERROR:  SQL limit V2 operations cannot be executed in explicit transactions.
+CONTEXT:  referenced column: gs_create_sql_limit_v2
+ROLLBACK
+ gs_create_sql_limit_v2 
+------------------------
+                    220
+(1 row)
+
+BEGIN
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:244: ERROR:  SQL limit V2 operations cannot be executed in explicit transactions.
+CONTEXT:  referenced column: gs_update_sql_limit_v2
+ROLLBACK
+ limit_name | max_concurrency 
+------------+-----------------
+ txn_rule   |               1
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    221
+(1 row)
+
+BEGIN
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:253: ERROR:  SQL limit V2 operations cannot be executed in explicit transactions.
+CONTEXT:  referenced column: gs_delete_sql_limit_v2
+ROLLBACK
+ txn_del_exists 
+----------------
+              1
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:263: ERROR:  invalid limit_type: invalid
+CONTEXT:  referenced column: gs_create_sql_limit_v2
+ gs_create_sql_limit_v2 
+------------------------
+                    222
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    223
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:272: ERROR:  limit_type can not be null.
+CONTEXT:  referenced column: gs_create_sql_limit_v2
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:274: ERROR:  work_node can not be null.
+CONTEXT:  referenced column: gs_create_sql_limit_v2
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:276: ERROR:  max_concurrency can not be null.
+CONTEXT:  referenced column: gs_create_sql_limit_v2
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:278: ERROR:  keyword must contain unique_sql_id for sqlId type.
+CONTEXT:  referenced column: gs_create_sql_limit_v2
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:280: ERROR:  unique_sql_id must be positive, got: 0
+CONTEXT:  referenced column: gs_create_sql_limit_v2
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:281: ERROR:  unique_sql_id must be positive, got: -1
+CONTEXT:  referenced column: gs_create_sql_limit_v2
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:283: ERROR:  limitId 999999 does not exist.
+CONTEXT:  referenced column: gs_delete_sql_limit_v2
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:285: ERROR:  limitId 999999 does not exist.
+CONTEXT:  referenced column: gs_update_sql_limit_v2
+gsql:/home/shangshanfei/openGauss-server/src/test/regress/sql/sql_limit_v2.sql:287: ERROR:  limitId 999999 does not exist.
+ gs_create_sql_limit_v2 
+------------------------
+                    227
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    228
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    229
+(1 row)
+
+ limit_name | enable | max_concurrency | limit_type |     keyword      | rule_version 
+------------+--------+-----------------+------------+------------------+--------------
+ all_1      | t      |               5 | select     |                  |            1
+ all_2      | t      |               3 | insert     | sql_limit_v2_tbl |            1
+ all_3      | t      |               7 | sqlId      | 55555            |            1
+(3 rows)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+ t
+ t
+(3 rows)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    230
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    231
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    232
+(1 row)
+
+SET
+ count 
+-------
+     1
+(1 row)
+
+ count 
+-------
+   867
+(1 row)
+
+INSERT 0 1
+DELETE 1
+RESET
+ limit_name  | hit_count 
+-------------+-----------
+ multi_empty |         2
+ multi_ins   |         1
+ multi_kw    |         0
+(3 rows)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+ t
+ t
+(3 rows)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    233
+(1 row)
+
+ limit_name |    hash    | unique_sql_id 
+------------+------------+---------------
+ kw_recalc  | 2457153233 |         11111
+(1 row)
+
+ gs_update_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ limit_name |    hash    | unique_sql_id | rule_version 
+------------+------------+---------------+--------------
+ kw_recalc  | 4201663569 |         22222 |            2
+(1 row)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    234
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    235
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    236
+(1 row)
+
+ limit_name | limit_id 
+------------+----------
+ mono_1     |      234
+ mono_2     |      235
+ mono_3     |      236
+(3 rows)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+(1 row)
+
+ gs_create_sql_limit_v2 
+------------------------
+                    237
+(1 row)
+
+ limit_name | limit_id 
+------------+----------
+ mono_1     |      234
+ mono_3     |      236
+ mono_4     |      237
+(3 rows)
+
+ gs_delete_sql_limit_v2 
+------------------------
+ t
+ t
+ t
+(3 rows)
+
+ final_remaining_rules 
+-----------------------
+                     0
+(1 row)
+
+DROP TABLE
+DROP ROLE
+DROP ROLE
+total time: 2233  ms

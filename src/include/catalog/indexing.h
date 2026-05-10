@@ -708,6 +708,9 @@ DECLARE_UNIQUE_INDEX(pg_proc_ext_proc_oid_index, 3488, on pg_proc_ext using btre
 DECLARE_INDEX(gs_sql_limit_id_index, 3242, on gs_sql_limit using btree(limit_id int8_ops));
 #define GsSqlLimitIdIndex 3242
 
+DECLARE_UNIQUE_INDEX(gs_sql_limit_rule_enable_type_hash_id_index, 9062, on gs_sql_limit_rule using btree(enable bool_ops, limit_type text_ops, hash int8_ops, limit_id int8_ops));
+#define GsSqlLimitRuleEnableTypeHashIdIndex 9062
+
 DECLARE_INDEX(pg_statistic_history_tab_statype_attnum_index, 4887, on pg_statistic_history using btree(starelid oid_ops, statype char_ops, staattnum int2_ops));
 #define StatisticHistoryTabTypAttnumIndexId 4887
 DECLARE_INDEX(pg_statistic_history_current_analyzetime_relid_index, 4888, on pg_statistic_history using btree(current_analyzetime timestamptz_ops, starelid oid_ops));

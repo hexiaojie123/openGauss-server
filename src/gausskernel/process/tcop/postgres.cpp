@@ -201,6 +201,7 @@ extern int optreset; /* might not be declared by system headers */
 #include "libpq/libpq-int.h"
 #include "tcop/autonomoustransaction.h"
 #include "workload/sql_limit_process.h"
+#include "workload/sql_limit_v2.h"
 #ifdef ENABLE_HTAP
 #include "access/htap/imcs_ctlg.h"
 #endif
@@ -3057,8 +3058,8 @@ static void exec_simple_query(const char* query_string, MessageType messageType,
         else
             querytree_list = pg_analyze_and_rewrite(parsetree, sql_query_string, NULL, 0);
 
-        if (g_instance.sqlLimit_cxt.entryCount > 0) {
-            LimitCurrentQuery(commandTag, query_string);
+        if (SqlLimitNeedCheck(commandTag)) {
+            LimitCurrentQueryV2(commandTag, query_string);
         }
 
         isCollect = checkCollectSimpleQuery(isCollect, querytree_list);
@@ -5173,8 +5174,8 @@ void exec_bind_message(BindMessage* pqBindMessage, PreparedStatement *pstmt, Cac
         SetUniqueSQLIdFromCachedPlanSource(psrc);
     }
 
-    if (g_instance.sqlLimit_cxt.entryCount > 0) {
-        LimitCurrentQuery(psrc->commandTag, psrc->query_string);
+    if (SqlLimitNeedCheck(psrc->commandTag)) {
+        LimitCurrentQueryV2(psrc->commandTag, psrc->query_string);
     }
 
     OpFusion::clearForCplan((OpFusion*)psrc->opFusionObj, psrc);
@@ -9415,7 +9416,7 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
              * we maybe need to hanlde this case
              */
 
-            UnlimitCurrentQuery();
+            UnlimitCurrentQueryV2();
             if (is_unique_sql_enabled()) {
 #ifdef ENABLE_MULTIPLE_NODES
                 if (need_update_unique_sql_row_stat())
@@ -12167,8 +12168,8 @@ static void exec_batch_bind_execute(StringInfo input_message)
      */
     start_xact_command();
 
-    if (g_instance.sqlLimit_cxt.entryCount > 0) {
-        LimitCurrentQuery(psrc->commandTag, psrc->query_string);
+    if (SqlLimitNeedCheck(psrc->commandTag)) {
+        LimitCurrentQueryV2(psrc->commandTag, psrc->query_string);
     }
 
     if (!u_sess->attr.attr_storage.phony_autocommit) {

@@ -38,6 +38,8 @@
 #include "catalog/gs_job_argument.h"
 #include "catalog/gs_job_attribute.h"
 #include "catalog/gs_sql_patch.h"
+#include "catalog/gs_sql_limit_rule.h"
+
 #include "catalog/pg_amop.h"
 #include "catalog/pg_amproc.h"
 #include "catalog/pg_auth_members.h"
@@ -394,6 +396,12 @@ const cachedesc cacheinfo[] = {
         GsClProcOid,
         1,
         {ObjectIdAttributeNumber, 0, 0, 0},
+        128},
+    {GsSqlLimitRuleRelationId, /* GSSQLLIMITRULE */
+        GsSqlLimitRuleEnableTypeHashIdIndex,
+        4,
+        {Anum_gs_sql_limit_rule_enable, Anum_gs_sql_limit_rule_limit_type,
+         Anum_gs_sql_limit_rule_hash, Anum_gs_sql_limit_rule_limit_id},
         128},
     {GsJobArgumentRelationId, /* JOBARGUMENTNAMEID */
         GsJobArgumentNameIndexId,

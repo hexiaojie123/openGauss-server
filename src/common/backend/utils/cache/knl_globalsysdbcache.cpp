@@ -38,6 +38,7 @@
 #include "catalog/pg_extension_data_source.h"
 #include "catalog/gs_obsscaninfo.h"
 #include "catalog/gs_sql_limit.h"
+#include "catalog/gs_sql_limit_rule.h"
 #include "catalog/indexing.h"
 #include "catalog/toasting.h"
 #include "catalog/pg_am.h"
@@ -654,6 +655,8 @@ void GlobalSysDBCache::InitRelStoreInSharedFlag()
     m_rel_store_in_shared[ReplicationOriginNameIndex] = true;
     m_rel_store_in_shared[GsSqlLimitRelationId] = true;
     m_rel_store_in_shared[GsSqlLimitIdIndex] = true;
+    m_rel_store_in_shared[GsSqlLimitRuleRelationId] = true;
+    m_rel_store_in_shared[GsSqlLimitRuleEnableTypeHashIdIndex] = true;
 }
 
 void GlobalSysDBCache::InitRelForInitSysCacheFlag()
