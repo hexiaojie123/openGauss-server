@@ -11,6 +11,11 @@
 - **WHEN** 连续创建多条规则
 - **THEN** 每条规则的 `limit_id` 严格递增
 
+#### Scenario: Multi-node write path requires global ID allocation
+- **GIVEN** 多个节点均可执行 `gs_create_sql_limit_v2`
+- **THEN** 实现 SHALL 使用全局 sequence、协调节点分配或等价的全局 ID 分配机制生成 `limit_id`
+- **AND** 不得依赖各节点本地共享原子计数器直接生成 `limit_id`
+
 ### Requirement: Rule table upper limit of 1000
 `gs_create_sql_limit_v2` SHALL 在创建前检查 `gs_sql_limit_rule` 中当前规则数量，若 >= 1000 则报错拒绝。
 
