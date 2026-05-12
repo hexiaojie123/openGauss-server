@@ -25,6 +25,7 @@
 #include "workload/sql_limit_process.h"
 #include "postgres.h"
 #include "catalog/gs_sql_limit.h"
+#include "catalog/gs_sql_limit_rule.h"
 #include "catalog/indexing.h"
 #include "utils/atomic.h"
 #include "utils/hsearch.h"
@@ -35,9 +36,20 @@
 #include "utils/fmgroids.h"
 #include "knl/knl_variable.h"
 #include "utils/builtins.h"
+#include "utils/syscache.h"
 #include "nodes/pg_list.h"
 #include "access/xact.h"
 #include "utils/int8.h"
+#include "access/hash.h"
+
+typedef struct SqlLimitRuleCandidate {
+    bool matched;
+    bool keywordEmpty;
+    uint64 limitId;
+    uint64 ruleVersion;
+    uint64 maxConcurrency;
+    SqlType sqlType;
+} SqlLimitRuleCandidate;
 
 bool UpdateSqlLimitValidity(SqlLimit* limit)
 {
@@ -781,53 +793,285 @@ bool DeleteSqlLimitCache(uint64 limitId)
     return true;
 }
 
-static void RecordMatchedLimits(SqlLimit* sqlidLimit, SqlLimit* keywordsLimit)
+static char *SqlLimitGetTextAttr(HeapTuple tuple, int attrNum)
 {
-    MemoryContext oldCxt = MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB));
-
-    List* limits = NIL;
-    if (sqlidLimit != NULL) {
-        limits = lappend(limits, (void*)(sqlidLimit->limitId));
+    bool isNull = false;
+    Datum datum = SysCacheGetAttr(GSSQLLIMIT, tuple, attrNum, &isNull);
+    if (isNull) {
+        return NULL;
     }
 
-    if (keywordsLimit != NULL) {
-        limits = lappend(limits, (void*)(keywordsLimit->limitId));
-    }
-
-    u_sess->sqlLimit_ctx.limitSqls = limits;
-    MemoryContextSwitchTo(oldCxt);
+    return TextDatumGetCString(datum);
 }
 
-static bool ShouldRejectQuery(SqlLimit* limit)
+static uint64 SqlLimitGetInt64Attr(HeapTuple tuple, int attrNum, uint64 defaultValue)
 {
-    if (limit == NULL) {
+    bool isNull = false;
+    Datum datum = SysCacheGetAttr(GSSQLLIMIT, tuple, attrNum, &isNull);
+    if (isNull) {
+        return defaultValue;
+    }
+
+    return (uint64)DatumGetInt64(datum);
+}
+
+static uint64 SqlLimitGetInt32Attr(HeapTuple tuple, int attrNum, uint64 defaultValue)
+{
+    bool isNull = false;
+    Datum datum = SysCacheGetAttr(GSSQLLIMIT, tuple, attrNum, &isNull);
+    if (isNull) {
+        return defaultValue;
+    }
+
+    return (uint64)DatumGetInt32(datum);
+}
+
+static TimestampTz SqlLimitGetTimestampAttr(HeapTuple tuple, int attrNum)
+{
+    bool isNull = false;
+    Datum datum = SysCacheGetAttr(GSSQLLIMIT, tuple, attrNum, &isNull);
+    return isNull ? 0 : DatumGetTimestampTz(datum);
+}
+
+static bool SqlLimitRuleIsValidTime(HeapTuple tuple)
+{
+    TimeWindow window;
+    TimeWindowSet(&window,
+        SqlLimitGetTimestampAttr(tuple, Anum_gs_sql_limit_rule_start_time),
+        SqlLimitGetTimestampAttr(tuple, Anum_gs_sql_limit_rule_end_time));
+    return TimeWindowContainsTime(&window);
+}
+
+static bool SqlLimitRuleIsValidNode(HeapTuple tuple)
+{
+    uint64 workNode = SqlLimitGetInt32Attr(tuple, Anum_gs_sql_limit_rule_work_node, 0);
+    if (workNode == 0) {
+        return true;
+    } else if (workNode == 1) {
+        return !RecoveryInProgress();
+    }
+
+    return RecoveryInProgress();
+}
+
+static bool SqlLimitRuleIsValidUsers(HeapTuple tuple)
+{
+    char *users = SqlLimitGetTextAttr(tuple, Anum_gs_sql_limit_rule_users);
+    if (users == NULL || users[0] == '\0') {
+        pfree_ext(users);
+        return true;
+    }
+
+    char *currentUser = GetUserNameFromId(GetCurrentUserId());
+    char *savePtr = NULL;
+    bool hasUser = false;
+    char *token = strtok_r(users, ",", &savePtr);
+    while (token != NULL) {
+        while (*token == ' ' || *token == '\t' || *token == '{') {
+            token++;
+        }
+        char *end = token + strlen(token);
+        while (end > token && (*(end - 1) == ' ' || *(end - 1) == '\t' || *(end - 1) == '}')) {
+            *(--end) = '\0';
+        }
+        if (token[0] == '\0') {
+            token = strtok_r(NULL, ",", &savePtr);
+            continue;
+        }
+        hasUser = true;
+        if (pg_strcasecmp(token, currentUser) == 0) {
+            pfree_ext(users);
+            return true;
+        }
+        token = strtok_r(NULL, ",", &savePtr);
+    }
+
+    pfree_ext(users);
+    return !hasUser;
+}
+
+static bool SqlLimitTextListIsEmpty(const char *text)
+{
+    if (text == NULL) {
+        return true;
+    }
+
+    while (*text != '\0') {
+        if (*text != ' ' && *text != '\t' && *text != ',' && *text != '{' && *text != '}') {
+            return false;
+        }
+        text++;
+    }
+
+    return true;
+}
+
+static bool SqlLimitKeywordMatches(const char *keywordText, const char *queryString)
+{
+    if (SqlLimitTextListIsEmpty(keywordText)) {
+        return true;
+    }
+
+    char *keywords = pstrdup(keywordText);
+    char *savePtr = NULL;
+    const char *currentPos = queryString;
+    char *token = strtok_r(keywords, ",", &savePtr);
+    while (token != NULL) {
+        while (*token == ' ' || *token == '\t' || *token == '{') {
+            token++;
+        }
+        char *end = token + strlen(token);
+        while (end > token && (*(end - 1) == ' ' || *(end - 1) == '\t' || *(end - 1) == '}')) {
+            *(--end) = '\0';
+        }
+        if (token[0] != '\0') {
+            const char *foundPos = strcasestr(currentPos, token);
+            if (foundPos == NULL) {
+                pfree_ext(keywords);
+                return false;
+            }
+            currentPos = foundPos + strlen(token);
+        }
+        token = strtok_r(NULL, ",", &savePtr);
+    }
+
+    pfree_ext(keywords);
+    return true;
+}
+
+static bool SqlLimitRuleMatches(HeapTuple tuple, SqlType sqlType, const char *queryString, uint64 queryId)
+{
+    if (!SqlLimitRuleIsValidTime(tuple) || !SqlLimitRuleIsValidNode(tuple) || !SqlLimitRuleIsValidUsers(tuple)) {
         return false;
     }
 
-    LimitStatsUpdateHit(&limit->stats);
-    volatile uint64 currConcurrency = limit->stats.currConcurrency;
-    volatile uint64 maxConcurrency = limit->maxConcurrency;
-
-    return (currConcurrency >= maxConcurrency);
-}
-
-static void RejectQuery(SqlLimit* limit)
-{
-    LimitStatsUpdateReject(&limit->stats);
-    LWLockRelease(SqlLimitLock);
-    ereport(ERROR,
-        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-            errmsg("The request is over max concurrency of sql limit, "
-                "the request will be rejected. limitId: %ld", limit->limitId),
-            errdetail("current concurrency: %lu, max concurrency: %lu",
-                limit->stats.currConcurrency + 1, limit->maxConcurrency)));
-}
-
-static void ProcessAcceptedLimit(SqlLimit* limit)
-{
-    if (limit != NULL) {
-        LimitStatsUpdateConcurrency(&limit->stats, true);
+    if (sqlType == SQL_TYPE_UNIQUE_SQLID) {
+        return SqlLimitGetInt64Attr(tuple, Anum_gs_sql_limit_rule_unique_sql_id, 0) == queryId;
     }
+
+    char *keywords = SqlLimitGetTextAttr(tuple, Anum_gs_sql_limit_rule_keyword);
+    bool matched = SqlLimitKeywordMatches(keywords, queryString);
+    pfree_ext(keywords);
+    return matched;
+}
+
+static void FillSqlLimitRuleCandidate(SqlLimitRuleCandidate *candidate, HeapTuple tuple, SqlType sqlType)
+{
+    char *keyword = SqlLimitGetTextAttr(tuple, Anum_gs_sql_limit_rule_keyword);
+    candidate->matched = true;
+    candidate->keywordEmpty = SqlLimitTextListIsEmpty(keyword);
+    candidate->sqlType = sqlType;
+    candidate->limitId = SqlLimitGetInt64Attr(tuple, Anum_gs_sql_limit_rule_limit_id, 0);
+    candidate->ruleVersion = SqlLimitGetInt64Attr(tuple, Anum_gs_sql_limit_rule_rule_version, 1);
+    candidate->maxConcurrency = SqlLimitGetInt32Attr(tuple, Anum_gs_sql_limit_rule_max_concurrency, 0);
+    pfree_ext(keyword);
+}
+
+static bool FindSqlidLimitCandidate(SqlLimitRuleCandidate *candidate)
+{
+    uint64 uniqueSqlId = u_sess->unique_sql_cxt.unique_sql_id;
+    if (uniqueSqlId == 0) {
+        return false;
+    }
+
+    int64 hashValue = (int64)DatumGetUInt32(hash_any((const unsigned char *)&uniqueSqlId, sizeof(uniqueSqlId)));
+    CatCList *catlist = SearchSysCacheList3(GSSQLLIMIT,
+        BoolGetDatum(true),
+        CStringGetTextDatum(SQLID_TYPE),
+        Int64GetDatum(hashValue));
+    for (int i = 0; i < catlist->n_members; ++i) {
+        HeapTuple tuple = t_thrd.lsc_cxt.FetchTupleFromCatCList(catlist, i);
+        if (SqlLimitRuleMatches(tuple, SQL_TYPE_UNIQUE_SQLID, NULL, uniqueSqlId)) {
+            FillSqlLimitRuleCandidate(candidate, tuple, SQL_TYPE_UNIQUE_SQLID);
+            ReleaseSysCacheList(catlist);
+            return true;
+        }
+    }
+
+    ReleaseSysCacheList(catlist);
+    return false;
+}
+
+static bool IsKeywordCandidatePreferred(const SqlLimitRuleCandidate *candidate, HeapTuple tuple)
+{
+    if (!candidate->matched) {
+        return true;
+    }
+
+    char *keyword = SqlLimitGetTextAttr(tuple, Anum_gs_sql_limit_rule_keyword);
+    bool newEmptyKeyword = SqlLimitTextListIsEmpty(keyword);
+    pfree_ext(keyword);
+
+    if (newEmptyKeyword != candidate->keywordEmpty) {
+        return newEmptyKeyword;
+    }
+
+    return SqlLimitGetInt64Attr(tuple, Anum_gs_sql_limit_rule_limit_id, 0) < candidate->limitId;
+}
+
+static bool FindKeywordLimitCandidate(SqlLimitRuleCandidate *candidate, SqlType sqlType, const char *limitType,
+    const char *queryString)
+{
+    CatCList *catlist = SearchSysCacheList2(GSSQLLIMIT,
+        BoolGetDatum(true),
+        CStringGetTextDatum(limitType));
+    for (int i = 0; i < catlist->n_members; ++i) {
+        HeapTuple tuple = t_thrd.lsc_cxt.FetchTupleFromCatCList(catlist, i);
+        if (!SqlLimitRuleMatches(tuple, sqlType, queryString, 0)) {
+            continue;
+        }
+
+        if (IsKeywordCandidatePreferred(candidate, tuple)) {
+            FillSqlLimitRuleCandidate(candidate, tuple, sqlType);
+        }
+    }
+
+    ReleaseSysCacheList(catlist);
+    return candidate->matched;
+}
+
+static bool FindSqlLimitCandidate(const char *commandTag, const char *queryString, SqlLimitRuleCandidate *candidate)
+{
+    errno_t rc = memset_s(candidate, sizeof(*candidate), 0, sizeof(*candidate));
+    securec_check(rc, "\0", "\0");
+
+    if (FindSqlidLimitCandidate(candidate)) {
+        return true;
+    }
+
+    SqlType sqlType = GetSqlLimitType(commandTag);
+    if (!IsKeywordsLimit(sqlType)) {
+        return false;
+    }
+
+    const char *limitType = NULL;
+    switch (sqlType) {
+        case SQL_TYPE_SELECT:
+            limitType = SELECT_TYPE;
+            break;
+        case SQL_TYPE_INSERT:
+            limitType = INSERT_TYPE;
+            break;
+        case SQL_TYPE_UPDATE:
+            limitType = UPDATE_TYPE;
+            break;
+        case SQL_TYPE_DELETE:
+            limitType = DELETE_TYPE;
+            break;
+        default:
+            return false;
+    }
+
+    return FindKeywordLimitCandidate(candidate, sqlType, limitType, queryString);
+}
+
+static void RecordMatchedLimitKey(const SqlLimitStatsKey *key)
+{
+    MemoryContext oldCxt = MemoryContextSwitchTo(SESS_GET_MEM_CXT_GROUP(MEMORY_CONTEXT_CBB));
+    SqlLimitStatsKey *record = (SqlLimitStatsKey *)palloc(sizeof(SqlLimitStatsKey));
+    *record = *key;
+    u_sess->sqlLimit_ctx.limitSqls = lappend(u_sess->sqlLimit_ctx.limitSqls, record);
+    MemoryContextSwitchTo(oldCxt);
 }
 
 void LimitCurrentQuery(const char* commandTag, const char* queryString)
@@ -840,52 +1084,57 @@ void LimitCurrentQuery(const char* commandTag, const char* queryString)
         return;
     }
 
-    LWLockAcquire(SqlLimitLock, LW_SHARED);
-
-    if (!g_instance.sqlLimit_cxt.cacheInited) {
-        LWLockRelease(SqlLimitLock);
+    SqlLimitRuleCandidate candidate;
+    if (!FindSqlLimitCandidate(commandTag, queryString, &candidate)) {
         return;
     }
 
-    SqlLimit* sqlidLimit = MatchSqlidLimit();
-    SqlLimit* keywordsLimit = MatchKeywordsLimit(commandTag, queryString);
-
-    if (sqlidLimit != NULL && ShouldRejectQuery(sqlidLimit)) {
-        RejectQuery(sqlidLimit);
+    SqlLimitStatsKey key;
+    SqlLimitStatsKeyInit(&key, 0, candidate.limitId, candidate.ruleVersion);
+    uint64 currConcurrency = 0;
+    if (!SqlLimitStatsReserve(&key, candidate.maxConcurrency, &currConcurrency)) {
+        ereport(LOG,
+            (errmodule(MOD_WLM),
+                errmsg("sql limit rule rejected query, limitId: %lu, limitType: %d, currConcurrency: %lu, "
+                    "maxConcurrency: %lu",
+                    candidate.limitId, candidate.sqlType, currConcurrency, candidate.maxConcurrency)));
+        ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                errmsg("The request is over max concurrency of sql limit, the request will be rejected. "
+                    "limitId: %lu",
+                    candidate.limitId),
+                errdetail("current concurrency: %lu, max concurrency: %lu", currConcurrency, candidate.maxConcurrency)));
     }
 
-    // keywords limit may be also matched, so we need to check it after sqlid limit
-    if (keywordsLimit != NULL && ShouldRejectQuery(keywordsLimit)) {
-        RejectQuery(keywordsLimit);
+    ereport(DEBUG1,
+        (errmodule(MOD_WLM),
+            errmsg("sql limit rule accepted query, limitId: %lu, limitType: %d, currConcurrency: %lu, "
+                "maxConcurrency: %lu",
+                candidate.limitId, candidate.sqlType, currConcurrency, candidate.maxConcurrency)));
+    PG_TRY();
+    {
+        RecordMatchedLimitKey(&key);
     }
-
-    ProcessAcceptedLimit(sqlidLimit);
-    ProcessAcceptedLimit(keywordsLimit);
-
-    RecordMatchedLimits(sqlidLimit, keywordsLimit);
-    LWLockRelease(SqlLimitLock);
+    PG_CATCH();
+    {
+        (void)SqlLimitStatsRelease(&key);
+        PG_RE_THROW();
+    }
+    PG_END_TRY();
 }
 
 void UnlimitCurrentQuery()
 {
-    if (!g_instance.sqlLimit_cxt.cacheInited) {
-        list_free_ext(u_sess->sqlLimit_ctx.limitSqls);
-        return;
-    }
-
-    LWLockAcquire(SqlLimitLock, LW_SHARED);
     if (u_sess->sqlLimit_ctx.limitSqls != NIL) {
         foreach_cell(cell, u_sess->sqlLimit_ctx.limitSqls) {
-            uint64 limitId = (uint64)lfirst(cell);
-            SqlLimit* limit = SearchSqlLimitCache(limitId);
-            if (limit != NULL) {
-                LimitStatsUpdateConcurrency(&limit->stats, false);
+            SqlLimitStatsKey *key = (SqlLimitStatsKey *)lfirst(cell);
+            if (key != NULL) {
+                (void)SqlLimitStatsRelease(key);
             }
         }
     }
-    list_free_ext(u_sess->sqlLimit_ctx.limitSqls);
+    list_free_deep(u_sess->sqlLimit_ctx.limitSqls);
     u_sess->sqlLimit_ctx.limitSqls = NIL;
-    LWLockRelease(SqlLimitLock);
 }
 
 static void CreateSqlLimitMemoryContext()

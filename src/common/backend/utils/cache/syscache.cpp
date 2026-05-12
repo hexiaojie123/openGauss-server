@@ -38,6 +38,7 @@
 #include "catalog/gs_job_argument.h"
 #include "catalog/gs_job_attribute.h"
 #include "catalog/gs_sql_patch.h"
+#include "catalog/gs_sql_limit_rule.h"
 #include "catalog/pg_amop.h"
 #include "catalog/pg_amproc.h"
 #include "catalog/pg_auth_members.h"
@@ -75,6 +76,7 @@
 #include "catalog/pg_range.h"
 #include "catalog/pg_rewrite.h"
 #include "catalog/pg_seclabel.h"
+#include "catalog/pg_set.h"
 #include "catalog/pg_shseclabel.h"
 #include "catalog/pg_shdescription.h"
 #include "catalog/pg_shdepend.h"
@@ -879,6 +881,19 @@ const cachedesc cacheinfo[] = {
         DbPrivilegeRoleidPrivilegeTypeIndexId,
         2,
         {Anum_gs_db_privilege_roleid, Anum_gs_db_privilege_privilege_type, 0, 0},
+        128},
+    {SetRelationId, /* SETTYPOIDNAME */
+        SetTypIdLabelIndexId,
+        2,
+        {Anum_pg_set_settypid, Anum_pg_set_setlabel, 0, 0},
+        64},
+    {GsSqlLimitRuleRelationId, /* GSSQLLIMIT */
+        GsSqlLimitEnableTypeHashIdIndex,
+        4,
+        {Anum_gs_sql_limit_rule_enable,
+            Anum_gs_sql_limit_rule_limit_type,
+            Anum_gs_sql_limit_rule_hash,
+            Anum_gs_sql_limit_rule_limit_id},
         128}
 };
 

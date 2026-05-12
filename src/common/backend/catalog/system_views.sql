@@ -6,6 +6,8 @@
  *
  * src/backend/catalog/system_views.sql
  */
+CREATE SEQUENCE pg_catalog.gs_sql_limit_rule_id_seq START WITH 1 INCREMENT BY 1 MINVALUE 1 NO MAXVALUE CACHE 1;
+
 CREATE VIEW pg_roles AS
     SELECT
         rolname,

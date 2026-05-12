@@ -218,6 +218,12 @@ tablespace-setup:
 
 REGRESS_OPTS = --dlpath=. $(EXTRA_REGRESS_OPTS)
 REG_CONF = --regconf=regress.conf
+INSTALLCHECK_REG_CONF = --regconf=regress_installcheck.conf
+ifeq ($(strip $(EXTRA_TESTS)),)
+INSTALLCHECK_TESTS = --schedule=$(srcdir)/serial_schedule
+else
+INSTALLCHECK_TESTS = $(EXTRA_TESTS)
+endif
 
 check: all tablespace-setup
 	export LD_LIBRARY_PATH=$(SSL_LIB_PATH):$(LD_LIBRARY_PATH) && \
@@ -380,8 +386,9 @@ parquetchecksmall: all tablespace-setup
 	$(pg_regress_check) $(REGRESS_OPTS) -d 2 -c 2 -p $(p) -r $(runtest) -b $(dir) --hdfshostname=$(hdfshostname) --hdfscfgpath=$(hdfscfgpath) --hdfsport=25000 --schedule=$(srcdir)/parquet_schedule_small --keep_last_data=${keep_last_data} $(MAXCONNOPT) --temp-config=$(srcdir)/make_fastcheck_postgresql.conf $(EXTRA_TESTS) $(REG_CONF)
 
 installcheck: all tablespace-setup
+	export CODE_BASE_SRC=$(realpath $(top_builddir)/src) && \
 	export LD_LIBRARY_PATH=$(SSL_LIB_PATH):$(LD_LIBRARY_PATH) && \
-	$(pg_regress_installcheck) $(REGRESS_OPTS) --schedule=$(srcdir)/serial_schedule $(EXTRA_TESTS) $(REG_CONF)
+	$(pg_regress_installcheck) $(REGRESS_OPTS) --top-builddir=$(top_builddir) -p $(p) $(INSTALLCHECK_TESTS) $(INSTALLCHECK_REG_CONF)
 
 installcheck-parallel: all tablespace-setup
 	$(call hotpatch_check_func)

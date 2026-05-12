@@ -3057,7 +3057,7 @@ static void exec_simple_query(const char* query_string, MessageType messageType,
         else
             querytree_list = pg_analyze_and_rewrite(parsetree, sql_query_string, NULL, 0);
 
-        if (g_instance.sqlLimit_cxt.entryCount > 0) {
+        if (SqlLimitNeedCheck(commandTag)) {
             LimitCurrentQuery(commandTag, query_string);
         }
 
@@ -5173,7 +5173,7 @@ void exec_bind_message(BindMessage* pqBindMessage, PreparedStatement *pstmt, Cac
         SetUniqueSQLIdFromCachedPlanSource(psrc);
     }
 
-    if (g_instance.sqlLimit_cxt.entryCount > 0) {
+    if (SqlLimitNeedCheck(psrc->commandTag)) {
         LimitCurrentQuery(psrc->commandTag, psrc->query_string);
     }
 
@@ -12167,7 +12167,7 @@ static void exec_batch_bind_execute(StringInfo input_message)
      */
     start_xact_command();
 
-    if (g_instance.sqlLimit_cxt.entryCount > 0) {
+    if (SqlLimitNeedCheck(psrc->commandTag)) {
         LimitCurrentQuery(psrc->commandTag, psrc->query_string);
     }
 

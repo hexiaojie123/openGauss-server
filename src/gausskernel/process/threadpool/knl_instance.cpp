@@ -203,6 +203,10 @@ static void knl_g_sqlLimit_init(knl_g_sqlLimit_context *sqlLimit_cxt)
     Assert(sqlLimit_cxt != NULL);
     sqlLimit_cxt->cacheInited = false;
     sqlLimit_cxt->gSqlLimitCxt = NULL;
+    sqlLimit_cxt->statsHash = NULL;
+    sqlLimit_cxt->statsLock = NULL;
+    sqlLimit_cxt->fastPathHash = NULL;
+    sqlLimit_cxt->fastPathLock = NULL;
     sqlLimit_cxt->uniqueSqlIdLimits = NULL;
     sqlLimit_cxt->limitRegistry = NULL;
     sqlLimit_cxt->entryIdSequence = 0;

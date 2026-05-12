@@ -77,66 +77,66 @@
 
 ## 1. Catalog & Syscache
 
-- [ ] 1.1 创建 `src/include/catalog/gs_sql_limit_rule.h`，定义表字段宏（`Anum_gs_sql_limit_*`）、属性编号、Schema OID、Table OID
-- [ ] 1.2 在 `src/include/catalog/indexing.h` 中添加 `gs_sql_limit_enable_type_hash_id_index` 唯一索引声明
-- [ ] 1.3 在 `src/common/backend/catalog/catalog.cpp` 中注册新表的 catalog 信息
-- [ ] 1.4 在 `src/include/utils/syscache.h` 中补充 `GSSQLLIMIT` cache id 枚举值
-- [ ] 1.5 在 `src/common/backend/utils/cache/syscache.cpp` 的 `cacheinfo[]` 中添加 `GSSQLLIMIT` 条目（4 key，128 slot）
-- [ ] 1.6 在 `src/common/backend/utils/cache/knl_globalsysdbcache.cpp` 中补充全局 sysdbcache 相关配置（如需要）
-- [ ] 1.7 测试：编译通过，启动实例后验证 `gs_sql_limit_rule` 表存在、字段正确、组合唯一索引存在、syscache 注册生效
+- [x] 1.1 创建 `src/include/catalog/gs_sql_limit_rule.h`，定义表字段宏（`Anum_gs_sql_limit_*`）、属性编号、Schema OID、Table OID
+- [x] 1.2 在 `src/include/catalog/indexing.h` 中添加 `gs_sql_limit_enable_type_hash_id_index` 唯一索引声明
+- [x] 1.3 在 `src/common/backend/catalog/catalog.cpp` 中注册新表的 catalog 信息
+- [x] 1.4 在 `src/include/utils/syscache.h` 中补充 `GSSQLLIMIT` cache id 枚举值
+- [x] 1.5 在 `src/common/backend/utils/cache/syscache.cpp` 的 `cacheinfo[]` 中添加 `GSSQLLIMIT` 条目（4 key，128 slot）
+- [x] 1.6 在 `src/common/backend/utils/cache/knl_globalsysdbcache.cpp` 中补充全局 sysdbcache 相关配置（如需要）
+- [x] 1.7 测试：编译通过，启动实例后验证 `gs_sql_limit_rule` 表存在、字段正确、组合唯一索引存在、syscache 注册生效
 
 ## 2. Stats HTAB
 
-- [ ] 2.1 在 `src/include/workload/sql_limit_base.h` 中定义 `SqlLimitStatsKey`、`SqlLimitStatsEntry` 结构体
-- [ ] 2.2 实现 stats HTAB 的初始化函数（共享内存 `ShmemInitHash`），在 `CreateSharedMemoryAndSemaphores` 中调用
-- [ ] 2.3 实现 `TryReserveSqlLimit()` CAS 原子并发预约函数
-- [ ] 2.4 实现 stats entry 的查找、创建、并发释放（原子递减 `currConcurrency`）函数
-- [ ] 2.5 实现 stats entry 惰性清理逻辑（`UnlimitCurrentQuery` 释放后 `currConcurrency == 0` 且 syscache 无对应规则时删除 entry）
-- [ ] 2.6 测试：编译通过，启动实例无报错，通过管理函数创建规则后验证 stats entry 创建和 CAS 预约行为
+- [x] 2.1 在 `src/include/workload/sql_limit_base.h` 中定义 `SqlLimitStatsKey`、`SqlLimitStatsEntry` 结构体
+- [x] 2.2 实现 stats HTAB 的初始化函数（共享内存 `ShmemInitHash`），在 `CreateSharedMemoryAndSemaphores` 中调用
+- [x] 2.3 实现 `TryReserveSqlLimit()` CAS 原子并发预约函数
+- [x] 2.4 实现 stats entry 的查找、创建、并发释放（原子递减 `currConcurrency`）函数
+- [x] 2.5 实现 stats entry 惰性清理逻辑（`UnlimitCurrentQuery` 释放后 `currConcurrency == 0` 且 syscache 无对应规则时删除 entry）
+- [x] 2.6 测试：编译通过，启动实例无报错，通过管理函数创建规则后验证 stats entry 创建和 CAS 预约行为
 
 ## 3. Fast Path
 
-- [ ] 3.1 在 `src/include/workload/sql_limit_base.h` 中定义 `SqlLimitFastPathEntry` 结构体
-- [ ] 3.2 实现 fast path HTAB 初始化（共享内存），`pdbOid` 默认为 0
-- [ ] 3.3 实现 `MarkSqlLimitFastPathDirty()` 标脏函数
-- [ ] 3.4 实现 `SqlLimitSyscacheCallback` syscache 回调（注册到 `GSSQLLIMIT`），回调内调用 `MarkSqlLimitFastPathDirty`
-- [ ] 3.5 实现 `RefreshSqlLimitFastPath(pdbOid)` 摘要刷新函数（扫描 `gs_sql_limit_rule` 计算 `activeRuleCount`）
-- [ ] 3.6 实现线程本地 `verifiedPdbSet` 及首次校验逻辑
-- [ ] 3.7 实现 `SqlLimitNeedCheck(commandTag)` 入口函数（幂等注册 callback、fast path 检查、首次校验）
-- [ ] 3.8 测试：无规则时执行 SQL 验证 fast path 跳过（不触发 syscache 查询），创建规则后验证 summary 刷新，删除所有规则后验证 `activeRuleCount` 归零再次跳过
+- [x] 3.1 在 `src/include/workload/sql_limit_base.h` 中定义 `SqlLimitFastPathEntry` 结构体
+- [x] 3.2 实现 fast path HTAB 初始化（共享内存），`pdbOid` 默认为 0
+- [x] 3.3 实现 `MarkSqlLimitFastPathDirty()` 标脏函数
+- [x] 3.4 实现 `SqlLimitSyscacheCallback` syscache 回调（注册到 `GSSQLLIMIT`），回调内调用 `MarkSqlLimitFastPathDirty`
+- [x] 3.5 实现 `RefreshSqlLimitFastPath(pdbOid)` 摘要刷新函数（扫描 `gs_sql_limit_rule` 计算 `activeRuleCount`）
+- [x] 3.6 实现线程本地 `verifiedPdbSet` 及首次校验逻辑
+- [x] 3.7 实现 `SqlLimitNeedCheck(commandTag)` 入口函数（幂等注册 callback、fast path 检查、首次校验）
+- [x] 3.8 测试：无规则时执行 SQL 验证 fast path 跳过（不触发 syscache 查询），创建规则后验证 summary 刷新，删除所有规则后验证 `activeRuleCount` 归零再次跳过
 
 ## 4. 运行时匹配流程
 
-- [ ] 4.1 重构 `LimitCurrentQuery(commandTag, queryString)`：快速跳过检查 → `limit_type` 计算 → SQLID 查询 `SearchSysCacheList3` → 关键词查询 `SearchSysCacheList2` → 逐条有效性判断 → 优先级选择
-- [ ] 4.2 实现规则有效性判断：时间窗口、主备节点、用户范围、SQLID/keyword 命中
-- [ ] 4.3 实现优先级选择逻辑：SQLID 优先 → 无关键词最高 → `limit_id` 越小越优先 → 短路返回
-- [ ] 4.4 实现 CAS 预约成功后将 `(pdbOid, limitId, ruleVersion)` 记录到 `u_sess->sqlLimit_ctx.limitSqls`
-- [ ] 4.5 重构 `UnlimitCurrentQuery()`：按 session 记录的 key 释放并发，惰性清理 stats entry
-- [ ] 4.6 在 `postgres.cpp` 中将 `g_instance.sqlLimit_cxt.entryCount > 0` 入口替换为 `SqlLimitNeedCheck(commandTag)`
-- [ ] 4.7 测试：SQLID 规则命中与拒绝、关键词规则命中与拒绝、`max_concurrency=1` 多会话竞争仅一个通过、SQLID 优先于关键词、无关键词规则匹配所有该类型 SQL、`limit_id` 越小越优先
+- [x] 4.1 重构 `LimitCurrentQuery(commandTag, queryString)`：快速跳过检查 → `limit_type` 计算 → SQLID 查询 `SearchSysCacheList3` → 关键词查询 `SearchSysCacheList2` → 逐条有效性判断 → 优先级选择
+- [x] 4.2 实现规则有效性判断：时间窗口、主备节点、用户范围、SQLID/keyword 命中
+- [x] 4.3 实现优先级选择逻辑：SQLID 优先 → 无关键词最高 → `limit_id` 越小越优先 → 短路返回
+- [x] 4.4 实现 CAS 预约成功后将 `(pdbOid, limitId, ruleVersion)` 记录到 `u_sess->sqlLimit_ctx.limitSqls`
+- [x] 4.5 重构 `UnlimitCurrentQuery()`：按 session 记录的 key 释放并发，惰性清理 stats entry
+- [x] 4.6 在 `postgres.cpp` 中将 `g_instance.sqlLimit_cxt.entryCount > 0` 入口替换为 `SqlLimitNeedCheck(commandTag)`
+- [x] 4.7 测试：SQLID 规则命中与拒绝、关键词规则命中与拒绝、`max_concurrency=1` 多会话竞争仅一个通过、SQLID 优先于关键词、无关键词规则匹配所有该类型 SQL、`limit_id` 越小越优先
 
 ## 5. 管理函数
 
-- [ ] 5.1 实现 `gs_create_sql_limit_v2`：参数校验 → 显式事务检查 → 规则数量上限检查（>= 1000 报错） → 插入 `gs_sql_limit_rule` → `CatalogUpdateIndexes` → `limit_id` 原子计数生成
-- [ ] 5.2 实现 `gs_update_sql_limit_v2`：显式事务检查 → 更新 `gs_sql_limit_rule` → 递增 `rule_version` → 同步派生字段
-- [ ] 5.3 实现 `gs_delete_sql_limit_v2`：显式事务检查 → 删除 `gs_sql_limit_rule` 记录
-- [ ] 5.4 实现 `gs_select_sql_limit_v2`：从 catalog/syscache 读元数据 + 从 stats HTAB 读计数（不存在返回 0）
-- [ ] 5.5 实现 `gs_select_sql_limit_all_v2()`：扫描系统表逐条读取 stats
-- [ ] 5.6 测试：create_v2 插入新表成功、update_v2 递增 rule_version、delete_v2 删除记录、select_v2 返回元数据+计数、显式事务中 create/update/delete 报错拒绝、规则数量达到 1000 后 create 报错拒绝
+- [x] 5.1 实现 `gs_create_sql_limit_v2`：参数校验 → 显式事务检查 → 规则数量上限检查（>= 1000 报错） → 插入 `gs_sql_limit_rule` → `CatalogUpdateIndexes` → `limit_id` 原子计数生成
+- [x] 5.2 实现 `gs_update_sql_limit_v2`：显式事务检查 → 更新 `gs_sql_limit_rule` → 递增 `rule_version` → 同步派生字段
+- [x] 5.3 实现 `gs_delete_sql_limit_v2`：显式事务检查 → 删除 `gs_sql_limit_rule` 记录
+- [x] 5.4 实现 `gs_select_sql_limit_v2`：从 catalog/syscache 读元数据 + 从 stats HTAB 读计数（不存在返回 0）
+- [x] 5.5 实现 `gs_select_sql_limit_all_v2()`：扫描系统表逐条读取 stats
+- [x] 5.6 测试：create_v2 插入新表成功、update_v2 递增 rule_version、delete_v2 删除记录、select_v2 返回元数据+计数、显式事务中 create/update/delete 报错拒绝、规则数量达到 1000 后 create 报错拒绝
 
 ## 6. 升级脚本
 
-- [ ] 6.1 编写升级 SQL：CREATE TABLE、CREATE UNIQUE INDEX、注册管理函数（`_v2` 后缀）
-- [ ] 6.2 编写 rollback SQL：删除函数、DROP INDEX、DROP TABLE
-- [ ] 6.3 在 `src/include/catalog/upgrade_sql/` 中放置升级脚本
-- [ ] 6.4 在 `src/include/catalog/rollback_sql/` 中放置回滚脚本
-- [ ] 6.5 测试：升级后表/索引/函数存在且正常工作，rollback 后干净恢复
+- [x] 6.1 编写升级 SQL：CREATE TABLE、CREATE UNIQUE INDEX、注册管理函数（`_v2` 后缀）
+- [x] 6.2 编写 rollback SQL：删除函数、DROP INDEX、DROP TABLE
+- [x] 6.3 在 `src/include/catalog/upgrade_sql/` 中放置升级脚本
+- [x] 6.4 在 `src/include/catalog/rollback_sql/` 中放置回滚脚本
+- [x] 6.5 测试：升级后表/索引/函数存在且正常工作，rollback 后干净恢复
 
 ## 7. 集成测试
 
-- [ ] 7.1 跨会话 invalidation 测试：会话 A 创建/更新/删除规则并提交，会话 B 立即验证规则生效/变更/失效
-- [ ] 7.2 规则更新时活跃 SQL 测试：更新规则后旧 SQL 按旧版本释放并发，新 SQL 使用新版本计数
-- [ ] 7.3 规则删除时活跃 SQL 测试：删除规则后活跃 SQL 正常结束并释放并发，stats entry 惰性清理
-- [ ] 7.4 时间窗口测试：`start_time/end_time` 窗口内外行为正确
-- [ ] 7.5 用户过滤测试：`users` 字段限定仅目标用户生效
-- [ ] 7.6 新线程首次校验测试：新线程首次执行 SQL 触发 `RefreshSqlLimitFastPath`
+- [x] 7.1 跨会话 invalidation 测试：会话 A 创建/更新/删除规则并提交，会话 B 立即验证规则生效/变更/失效
+- [x] 7.2 规则更新时活跃 SQL 测试：更新规则后旧 SQL 按旧版本释放并发，新 SQL 使用新版本计数
+- [x] 7.3 规则删除时活跃 SQL 测试：删除规则后活跃 SQL 正常结束并释放并发，stats entry 惰性清理
+- [x] 7.4 时间窗口测试：`start_time/end_time` 窗口内外行为正确
+- [x] 7.5 用户过滤测试：`users` 字段限定仅目标用户生效
+- [x] 7.6 新线程首次校验测试：新线程首次执行 SQL 触发 `RefreshSqlLimitFastPath`

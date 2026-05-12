@@ -216,3 +216,4 @@ test: dump_alter_index_invisible nls_lower
 test: record_slow_sql_in_proc_commit
 
 test: sql_limit
+test: sql_limit_v2

@@ -29,6 +29,7 @@
 #include "utils/timestamp.h"
 #include "nodes/pg_list.h"
 #include "commands/dbcommands.h"
+#include "utils/atomic.h"
 
 #define SQLID_TYPE "sqlId"
 #define SELECT_TYPE "select"
@@ -50,6 +51,40 @@ typedef struct {
     TimestampTz endTime;    /* end time, 0 means no end limit */
 } TimeWindow;
 
+typedef struct SqlLimitStatsKey {
+    Oid pdbOid;
+    uint64 limitId;
+    uint64 ruleVersion;
+} SqlLimitStatsKey;
+
+typedef struct SqlLimitStatsEntry {
+    SqlLimitStatsKey key;
+    pg_atomic_uint64 hitCount;
+    pg_atomic_uint64 rejectCount;
+    pg_atomic_uint64 currConcurrency;
+} SqlLimitStatsEntry;
+
+typedef struct SqlLimitFastPathEntry {
+    Oid pdbOid;
+    pg_atomic_uint32 dirty;
+    pg_atomic_uint32 activeRuleCount;
+} SqlLimitFastPathEntry;
+
+#define SQL_LIMIT_STATS_HASH_SIZE 4096
+#define SQL_LIMIT_FAST_PATH_HASH_SIZE 16
+
+Size SqlLimitStatsShmemSize(void);
+void SqlLimitStatsShmemInit(void);
+Size SqlLimitFastPathShmemSize(void);
+void SqlLimitFastPathShmemInit(void);
+void SqlLimitStatsKeyInit(SqlLimitStatsKey *key, Oid pdbOid, uint64 limitId, uint64 ruleVersion);
+bool SqlLimitStatsReserve(const SqlLimitStatsKey *key, uint64 maxConcurrency, uint64 *currConcurrency);
+bool SqlLimitStatsSnapshot(const SqlLimitStatsKey *key, uint64 *hitCount, uint64 *rejectCount, uint64 *currConcurrency);
+uint64 SqlLimitStatsRelease(const SqlLimitStatsKey *key);
+bool SqlLimitStatsCleanupIfUnused(const SqlLimitStatsKey *key);
+void MarkSqlLimitFastPathDirty(Oid pdbOid);
+bool RefreshSqlLimitFastPath(Oid pdbOid);
+bool SqlLimitNeedCheck(const char *commandTag);
 
 /* limit statistics structure */
 typedef struct {

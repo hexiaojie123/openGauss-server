@@ -51,6 +51,7 @@
 #include "gssignal/gs_signal.h"
 #include "knl/knl_guc.h"
 #include "knl/knl_session.h"
+#include "nodes/bitmapset.h"
 #include "nodes/pg_list.h"
 #include "storage/lock/s_lock.h"
 #include "utils/knl_localsysdbcache.h"
@@ -3528,6 +3529,8 @@ typedef struct knl_t_sync_auxiliary_context {
 typedef struct knl_t_sql_limit_context {
     volatile sig_atomic_t got_SIGHUP;
     volatile sig_atomic_t shutdown_requested;
+    bool syscacheCallbackRegistered;
+    Bitmapset *verifiedPdbSet;
 } knl_t_sql_limit_context;
 
 /*

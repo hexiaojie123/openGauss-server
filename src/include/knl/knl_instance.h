@@ -1388,6 +1388,10 @@ typedef struct knl_g_startup_context {
 
 typedef struct knl_g_sqlLimit_context {
     MemoryContext gSqlLimitCxt;
+    HTAB* statsHash;
+    LWLock* statsLock;
+    HTAB* fastPathHash;
+    LWLock* fastPathLock;
     HTAB* uniqueSqlIdLimits;
     HTAB* limitRegistry;
     dlist_head keywordsLimits[MAX_SQL_LIMIT_TYPE];

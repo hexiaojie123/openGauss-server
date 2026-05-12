@@ -36,6 +36,7 @@
 #include "commands/async.h"
 #include "commands/matview.h"
 #include "commands/online_ddl.h"
+#include "workload/sql_limit_base.h"
 #include "foreign/dummyserver.h"
 #include "job/job_scheduler.h"
 #include "miscadmin.h"
@@ -190,6 +191,8 @@ Size ComputeTotalSizeOfShmem()
         size = add_size(size, LsnXlogFlushChkShmemSize());
         size = add_size(size, heartbeat_shmem_size());
         size = add_size(size, MatviewShmemSize());
+        size = add_size(size, SqlLimitStatsShmemSize());
+        size = add_size(size, SqlLimitFastPathShmemSize());
 #ifndef ENABLE_MULTIPLE_NODES
         if(g_instance.attr.attr_storage.dcf_attr.enable_dcf) {
             size = add_size(size, DcfContextShmemSize());
@@ -438,6 +441,8 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
      */
     InitDataFileIdCache();
     InitUidCache();
+    SqlLimitStatsShmemInit();
+    SqlLimitFastPathShmemInit();
 
     /*
      * Set up seg spc cache
@@ -530,4 +535,3 @@ void CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
     if (t_thrd.storage_cxt.shmem_startup_hook)
         t_thrd.storage_cxt.shmem_startup_hook();
 }
-

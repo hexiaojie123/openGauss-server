@@ -63,7 +63,7 @@ POSTGRES_BKI_SRCS = $(addprefix $(top_srcdir)/src/include/catalog/,\
 	gs_matview_dependency.h gs_matview_log.h pgxc_slice.h gs_opt_model.h gs_dependencies.h gs_dependencies_obj.h gs_package.h gs_model.h\
 	pg_recyclebin.h pg_snapshot.h gs_job_argument.h gs_job_attribute.h pg_uid.h gs_db_privilege.h\
 	pg_replication_origin.h pg_publication.h pg_publication_rel.h pg_subscription.h gs_sql_patch.h\
-	pg_subscription_rel.h pg_proc_ext.h pg_object_type.h gs_sql_limit.h pg_statistic_history.h pg_statistic_lock.h\
+	pg_subscription_rel.h pg_proc_ext.h pg_object_type.h gs_sql_limit.h gs_sql_limit_rule.h pg_statistic_history.h pg_statistic_lock.h\
     )
 
 # location of Catalog.pm

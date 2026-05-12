@@ -415,6 +415,12 @@ static void ProcessInvalidationMessagesMulti(
  */
 static void RegisterCatcacheInvalidation(int cacheId, uint32 hashValue, Oid dbId)
 {
+    if (cacheId == GSSQLLIMIT || cacheId >= CHAR_MAX) {
+        AddCatalogInvalidationMessage(
+            &GetInvalCxt()->transInvalInfo->CurrentCmdInvalidMsgs, dbId, cacheinfo[cacheId].reloid);
+        return;
+    }
+
     AddCatcacheInvalidationMessage(&GetInvalCxt()->transInvalInfo->CurrentCmdInvalidMsgs, cacheId, hashValue, dbId);
 }
 
@@ -489,6 +495,14 @@ static void RegisterPartcacheInvalidation(Oid dbId, Oid partId)
 static void SendCatcacheInvalidation(int cacheId, uint32 hashValue, Oid dbId)
 {
     SharedInvalidationMessage msg;
+
+    if (cacheId == GSSQLLIMIT || cacheId >= CHAR_MAX) {
+        msg.cat.id = SHAREDINVALCATALOG_ID;
+        msg.cat.dbId = dbId;
+        msg.cat.catId = cacheinfo[cacheId].reloid;
+        SendSharedInvalidMessages(&msg, 1);
+        return;
+    }
 
     Assert(cacheId < CHAR_MAX);
     msg.cc.id = (int8)cacheId;

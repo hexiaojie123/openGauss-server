@@ -39,13 +39,22 @@
 #include "access/heapam.h"
 #include "access/genam.h"
 #include "storage/ipc.h"
+#include "storage/lmgr.h"
 #include "storage/proc.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_database.h"
+#include "catalog/pg_namespace.h"
 #include "catalog/gs_sql_limit.h"
+#include "catalog/gs_sql_limit_rule.h"
+#include "commands/sequence.h"
 #include "workload/sql_limit_process.h"
 #include "instruments/gs_stack.h"
+#include "utils/int8.h"
+#include "utils/lsyscache.h"
+#include "access/hash.h"
+
+#define SQL_LIMIT_RULE_ID_SEQUENCE "gs_sql_limit_rule_id_seq"
 
 static inline bool IsSqlLimitTypeValid(char *sqlType)
 {
@@ -88,7 +97,6 @@ static void ValidateLimitParams(FunctionCallInfo fcinfo, bool isCreate)
 
     const int WORK_NODE_ARG_INDEX = 2;
     const int MAX_CONCURRENCY_ARG_INDEX = 3;
-    const int OPTION_VAL_ARG_INDEX = 6;
     if (PG_ARGISNULL(WORK_NODE_ARG_INDEX)) {
         ereport(ERROR, (errmodule(MOD_WLM), errmsg("work_node can not be null.")));
     }
@@ -97,9 +105,6 @@ static void ValidateLimitParams(FunctionCallInfo fcinfo, bool isCreate)
         ereport(ERROR, (errmodule(MOD_WLM), errmsg("max_cocurrency can not be null.")));
     }
 
-    if (PG_ARGISNULL(OPTION_VAL_ARG_INDEX)) {
-        ereport(ERROR, (errmodule(MOD_WLM), errmsg("limit_opt can not be null.")));
-    }
 }
 
 static void FillLimitParams(Datum* values, bool* nulls, FunctionCallInfo fcinfo)
@@ -439,6 +444,409 @@ Datum gs_delete_sql_limit(PG_FUNCTION_ARGS)
     bool result = DeleteSqlLimitCache(DatumGetUInt64(limitId));
 
     PG_RETURN_BOOL(result);
+}
+
+static void CheckSqlLimitV2TransactionBlock(const char *operation)
+{
+    if (IsTransactionBlock()) {
+        ereport(ERROR, (errmodule(MOD_WLM), errmsg("%s sql limit v2 is not allowed in transaction block.", operation)));
+    }
+}
+
+static uint32 GetSqlLimitRuleCountFromRelation(Relation rel)
+{
+    uint32 count = 0;
+    SysScanDesc scan = systable_beginscan(rel, InvalidOid, false, SnapshotNow, 0, NULL);
+    HeapTuple tuple = NULL;
+    while (HeapTupleIsValid(tuple = systable_getnext(scan))) {
+        count++;
+    }
+    systable_endscan(scan);
+
+    return count;
+}
+
+static uint64 GetNextSqlLimitRuleId(void)
+{
+    Oid seqOid = get_relname_relid(SQL_LIMIT_RULE_ID_SEQUENCE, PG_CATALOG_NAMESPACE);
+    if (!OidIsValid(seqOid)) {
+        ereport(ERROR,
+            (errmodule(MOD_WLM),
+                errmsg("sql limit rule id sequence \"%s\" does not exist.", SQL_LIMIT_RULE_ID_SEQUENCE)));
+    }
+
+    int128 nextId = nextval_internal(seqOid);
+    if (nextId <= 0 || nextId > PG_INT64_MAX) {
+        ereport(ERROR,
+            (errmodule(MOD_WLM),
+                errmsg("sql limit rule id sequence returned invalid value.")));
+    }
+
+    return (uint64)((int64)nextId);
+}
+
+static int64 ParseSqlLimitV2UniqueSqlId(Datum keywordDatum)
+{
+    char *keyword = text_to_cstring(DatumGetTextP(keywordDatum));
+    int64 uniqueSqlId = 0;
+    bool parsed = scanint8(keyword, true, &uniqueSqlId);
+    pfree_ext(keyword);
+    if (!parsed || uniqueSqlId <= 0) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("unique SQL ID must be a positive integer")));
+    }
+    return uniqueSqlId;
+}
+
+static int64 SqlLimitV2HashInt64(int64 value)
+{
+    return (int64)DatumGetUInt32(hash_any((const unsigned char *)&value, sizeof(value)));
+}
+
+static void FillSqlLimitRuleDerivedFields(
+    Datum *values, bool *nulls, bool *repl, const char *sqlType, Datum limitOptDatum, bool limitOptNull)
+{
+    if (strcasecmp(sqlType, SQLID_TYPE) == 0) {
+        if (limitOptNull) {
+            ereport(ERROR, (errmodule(MOD_WLM), errmsg("unique SQL ID can not be null.")));
+        }
+        int64 uniqueSqlId = ParseSqlLimitV2UniqueSqlId(limitOptDatum);
+        values[Anum_gs_sql_limit_rule_hash - 1] = Int64GetDatum(SqlLimitV2HashInt64(uniqueSqlId));
+        values[Anum_gs_sql_limit_rule_unique_sql_id - 1] = Int64GetDatum(uniqueSqlId);
+        nulls[Anum_gs_sql_limit_rule_hash - 1] = false;
+        nulls[Anum_gs_sql_limit_rule_unique_sql_id - 1] = false;
+        nulls[Anum_gs_sql_limit_rule_keyword - 1] = true;
+    } else {
+        values[Anum_gs_sql_limit_rule_hash - 1] = Int64GetDatum(0);
+        values[Anum_gs_sql_limit_rule_unique_sql_id - 1] = Int64GetDatum(0);
+        if (!limitOptNull) {
+            values[Anum_gs_sql_limit_rule_keyword - 1] = limitOptDatum;
+        }
+        nulls[Anum_gs_sql_limit_rule_hash - 1] = false;
+        nulls[Anum_gs_sql_limit_rule_unique_sql_id - 1] = false;
+        nulls[Anum_gs_sql_limit_rule_keyword - 1] = limitOptNull;
+    }
+
+    if (repl != NULL) {
+        repl[Anum_gs_sql_limit_rule_hash - 1] = true;
+        repl[Anum_gs_sql_limit_rule_unique_sql_id - 1] = true;
+        repl[Anum_gs_sql_limit_rule_keyword - 1] = true;
+    }
+}
+
+static void FillSqlLimitRuleCommonFields(Datum *values, bool *nulls, bool *repl, FunctionCallInfo fcinfo,
+    int limitNameArg, int workNodeArg, int maxConcurrencyArg, int startTimeArg, int endTimeArg, int usersArg)
+{
+    if (PG_ARGISNULL(limitNameArg)) {
+        nulls[Anum_gs_sql_limit_rule_limit_name - 1] = true;
+    } else {
+        values[Anum_gs_sql_limit_rule_limit_name - 1] = PG_GETARG_DATUM(limitNameArg);
+        nulls[Anum_gs_sql_limit_rule_limit_name - 1] = false;
+    }
+    values[Anum_gs_sql_limit_rule_work_node - 1] = PG_GETARG_DATUM(workNodeArg);
+    values[Anum_gs_sql_limit_rule_max_concurrency - 1] = PG_GETARG_DATUM(maxConcurrencyArg);
+    if (PG_GETARG_INT32(maxConcurrencyArg) < 0) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("max_concurrency can not be negative.")));
+    }
+    nulls[Anum_gs_sql_limit_rule_work_node - 1] = false;
+    nulls[Anum_gs_sql_limit_rule_max_concurrency - 1] = false;
+
+    if (PG_ARGISNULL(startTimeArg)) {
+        nulls[Anum_gs_sql_limit_rule_start_time - 1] = true;
+    } else {
+        values[Anum_gs_sql_limit_rule_start_time - 1] = PG_GETARG_DATUM(startTimeArg);
+        nulls[Anum_gs_sql_limit_rule_start_time - 1] = false;
+    }
+
+    if (PG_ARGISNULL(endTimeArg)) {
+        nulls[Anum_gs_sql_limit_rule_end_time - 1] = true;
+    } else {
+        values[Anum_gs_sql_limit_rule_end_time - 1] = PG_GETARG_DATUM(endTimeArg);
+        nulls[Anum_gs_sql_limit_rule_end_time - 1] = false;
+    }
+
+    if (PG_ARGISNULL(usersArg)) {
+        nulls[Anum_gs_sql_limit_rule_users - 1] = true;
+    } else {
+        values[Anum_gs_sql_limit_rule_users - 1] = PG_GETARG_DATUM(usersArg);
+        nulls[Anum_gs_sql_limit_rule_users - 1] = false;
+    }
+
+    if (repl != NULL) {
+        repl[Anum_gs_sql_limit_rule_limit_name - 1] = true;
+        repl[Anum_gs_sql_limit_rule_work_node - 1] = true;
+        repl[Anum_gs_sql_limit_rule_max_concurrency - 1] = true;
+        repl[Anum_gs_sql_limit_rule_start_time - 1] = true;
+        repl[Anum_gs_sql_limit_rule_end_time - 1] = true;
+        repl[Anum_gs_sql_limit_rule_users - 1] = true;
+    }
+}
+
+// gs_create_sql_limit_v2(limit_name,limit_type,work_node,max_concurrency,start_time,end_time,keyword,users)
+Datum gs_create_sql_limit_v2(PG_FUNCTION_ARGS)
+{
+    CheckSqlLimitV2TransactionBlock("create");
+    ValidateLimitParams(fcinfo, true);
+
+    LockRelationOid(GsSqlLimitRuleRelationId, AccessExclusiveLock);
+    Relation rel = heap_open(GsSqlLimitRuleRelationId, NoLock);
+
+    uint32 ruleCount = GetSqlLimitRuleCountFromRelation(rel);
+    if (ruleCount >= 1000) {
+        heap_close(rel, NoLock);
+        ereport(ERROR, (errmodule(MOD_WLM), errmsg("sql limit rule count(%u) is over the limit(1000).", ruleCount)));
+    }
+
+    char *sqlType = text_to_cstring(PG_GETARG_TEXT_P(1));
+    Datum values[Natts_gs_sql_limit_rule] = {};
+    bool nulls[Natts_gs_sql_limit_rule] = {};
+
+    uint64 limitId = GetNextSqlLimitRuleId();
+    values[Anum_gs_sql_limit_rule_limit_id - 1] = Int64GetDatum((int64)limitId);
+    values[Anum_gs_sql_limit_rule_enable - 1] = BoolGetDatum(true);
+    values[Anum_gs_sql_limit_rule_limit_type - 1] = PG_GETARG_DATUM(1);
+    values[Anum_gs_sql_limit_rule_rule_version - 1] = Int64GetDatum(1);
+    nulls[Anum_gs_sql_limit_rule_limit_id - 1] = false;
+    nulls[Anum_gs_sql_limit_rule_enable - 1] = false;
+    nulls[Anum_gs_sql_limit_rule_limit_type - 1] = false;
+    nulls[Anum_gs_sql_limit_rule_rule_version - 1] = false;
+
+    FillSqlLimitRuleCommonFields(values, nulls, NULL, fcinfo, 0, 2, 3, 4, 5, 7);
+    FillSqlLimitRuleDerivedFields(values, nulls, NULL, sqlType,
+        PG_ARGISNULL(6) ? (Datum)0 : PG_GETARG_DATUM(6), PG_ARGISNULL(6));
+
+    TupleDesc tupleDesc = RelationGetDescr(rel);
+    HeapTuple tuple = heap_form_tuple(tupleDesc, values, nulls);
+    (void)simple_heap_insert(rel, tuple);
+    CatalogUpdateIndexes(rel, tuple);
+    heap_freetuple_ext(tuple);
+    heap_close(rel, NoLock);
+
+    ereport(LOG, (errmodule(MOD_WLM), errmsg("create sql limit v2 rule, limitId: %lu, limitType: %s", limitId, sqlType)));
+    pfree_ext(sqlType);
+    PG_RETURN_INT64((int64)limitId);
+}
+
+static HeapTuple GetSqlLimitRuleTuple(Relation rel, uint64 limitId, TupleDesc tupleDesc, SysScanDesc *scan)
+{
+    *scan = systable_beginscan(rel, InvalidOid, false, NULL, 0, NULL);
+    HeapTuple tuple = NULL;
+    Datum values[Natts_gs_sql_limit_rule] = {};
+    bool nulls[Natts_gs_sql_limit_rule] = {};
+    while (HeapTupleIsValid(tuple = systable_getnext(*scan))) {
+        heap_deform_tuple(tuple, tupleDesc, values, nulls);
+        if (!nulls[Anum_gs_sql_limit_rule_limit_id - 1] &&
+            (uint64)DatumGetInt64(values[Anum_gs_sql_limit_rule_limit_id - 1]) == limitId) {
+            return tuple;
+        }
+    }
+    return NULL;
+}
+
+// gs_update_sql_limit_v2(limit_id,limit_name,work_node,max_concurrency,start_time,end_time,keyword,users)
+Datum gs_update_sql_limit_v2(PG_FUNCTION_ARGS)
+{
+    CheckSqlLimitV2TransactionBlock("update");
+    ValidateLimitParams(fcinfo, false);
+
+    uint64 limitId = (uint64)PG_GETARG_INT64(0);
+    Relation rel = heap_open(GsSqlLimitRuleRelationId, RowExclusiveLock);
+    TupleDesc tupleDesc = RelationGetDescr(rel);
+    SysScanDesc scan = NULL;
+    HeapTuple tuple = GetSqlLimitRuleTuple(rel, limitId, tupleDesc, &scan);
+    if (!HeapTupleIsValid(tuple)) {
+        systable_endscan(scan);
+        heap_close(rel, RowExclusiveLock);
+        ereport(ERROR, (errmodule(MOD_WLM), errmsg("limitId %lu is not exist.", limitId)));
+    }
+
+    Datum values[Natts_gs_sql_limit_rule] = {};
+    bool nulls[Natts_gs_sql_limit_rule] = {};
+    bool repl[Natts_gs_sql_limit_rule] = {};
+    heap_deform_tuple(tuple, tupleDesc, values, nulls);
+
+    char *sqlType = text_to_cstring(DatumGetTextP(values[Anum_gs_sql_limit_rule_limit_type - 1]));
+    FillSqlLimitRuleCommonFields(values, nulls, repl, fcinfo, 1, 2, 3, 4, 5, 7);
+    FillSqlLimitRuleDerivedFields(values, nulls, repl, sqlType,
+        PG_ARGISNULL(6) ? (Datum)0 : PG_GETARG_DATUM(6), PG_ARGISNULL(6));
+    uint64 oldVersion = nulls[Anum_gs_sql_limit_rule_rule_version - 1] ? 0 :
+        (uint64)DatumGetInt64(values[Anum_gs_sql_limit_rule_rule_version - 1]);
+    values[Anum_gs_sql_limit_rule_rule_version - 1] = Int64GetDatum((int64)(oldVersion + 1));
+    nulls[Anum_gs_sql_limit_rule_rule_version - 1] = false;
+    repl[Anum_gs_sql_limit_rule_rule_version - 1] = true;
+
+    HeapTuple newTuple = heap_modify_tuple(tuple, tupleDesc, values, nulls, repl);
+    simple_heap_update(rel, &newTuple->t_self, newTuple);
+    CatalogUpdateIndexes(rel, newTuple);
+    heap_freetuple_ext(newTuple);
+    systable_endscan(scan);
+    heap_close(rel, RowExclusiveLock);
+
+    ereport(LOG, (errmodule(MOD_WLM), errmsg("update sql limit v2 rule, limitId: %lu, limitType: %s, ruleVersion: %lu",
+        limitId, sqlType, oldVersion + 1)));
+    pfree_ext(sqlType);
+    PG_RETURN_BOOL(true);
+}
+
+Datum gs_delete_sql_limit_v2(PG_FUNCTION_ARGS)
+{
+    CheckSqlLimitV2TransactionBlock("delete");
+    if (!superuser()) {
+        aclcheck_error(ACLCHECK_NO_PRIV, ACL_KIND_PROC, "must be system admin to execute");
+    }
+    if (PG_ARGISNULL(0)) {
+        ereport(ERROR, (errmodule(MOD_WLM), errmsg("limitId can not be null.")));
+    }
+
+    uint64 limitId = (uint64)PG_GETARG_INT64(0);
+    Relation rel = heap_open(GsSqlLimitRuleRelationId, RowExclusiveLock);
+    TupleDesc tupleDesc = RelationGetDescr(rel);
+    SysScanDesc scan = NULL;
+    HeapTuple tuple = GetSqlLimitRuleTuple(rel, limitId, tupleDesc, &scan);
+    if (!HeapTupleIsValid(tuple)) {
+        systable_endscan(scan);
+        heap_close(rel, RowExclusiveLock);
+        ereport(ERROR, (errmodule(MOD_WLM), errmsg("limitId %lu is not exist.", limitId)));
+    }
+
+    simple_heap_delete(rel, &tuple->t_self);
+    systable_endscan(scan);
+    heap_close(rel, RowExclusiveLock);
+
+    ereport(LOG, (errmodule(MOD_WLM), errmsg("delete sql limit v2 rule, limitId: %lu", limitId)));
+    PG_RETURN_BOOL(true);
+}
+
+static TupleDesc InitializeSqlLimitV2ResultSet(ReturnSetInfo *rsinfo)
+{
+    const int COL_NUM = 16;
+    int i = 1;
+    MemoryContext oldcontext = MemoryContextSwitchTo(rsinfo->econtext->ecxt_per_query_memory);
+    TupleDesc tupdesc = CreateTemplateTupleDesc(COL_NUM, false);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "limit_id", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "limit_name", NAMEOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "enable", BOOLOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "work_node", INT4OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "max_concurrency", INT4OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "start_time", TIMESTAMPOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "end_time", TIMESTAMPOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "limit_type", TEXTOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "hash", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "unique_sql_id", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "keyword", TEXTOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "rule_version", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "users", TEXTOID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "hit_count", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "reject_count", INT8OID, -1, 0);
+    TupleDescInitEntry(tupdesc, (AttrNumber)i++, "curr_concurrency", INT8OID, -1, 0);
+
+    rsinfo->returnMode = SFRM_Materialize;
+    rsinfo->setResult = tuplestore_begin_heap(true, false, u_sess->attr.attr_memory.work_mem);
+    rsinfo->setDesc = BlessTupleDesc(tupdesc);
+    MemoryContextSwitchTo(oldcontext);
+    return tupdesc;
+}
+
+static void AppendSqlLimitV2Row(Tuplestorestate *store, TupleDesc tupdesc, HeapTuple tuple)
+{
+    Datum values[16] = {};
+    bool nulls[16] = {false};
+    static const AttrNumber attrs[] = {
+        Anum_gs_sql_limit_rule_limit_id,
+        Anum_gs_sql_limit_rule_limit_name,
+        Anum_gs_sql_limit_rule_enable,
+        Anum_gs_sql_limit_rule_work_node,
+        Anum_gs_sql_limit_rule_max_concurrency,
+        Anum_gs_sql_limit_rule_start_time,
+        Anum_gs_sql_limit_rule_end_time,
+        Anum_gs_sql_limit_rule_limit_type,
+        Anum_gs_sql_limit_rule_hash,
+        Anum_gs_sql_limit_rule_unique_sql_id,
+        Anum_gs_sql_limit_rule_keyword,
+        Anum_gs_sql_limit_rule_rule_version,
+        Anum_gs_sql_limit_rule_users
+    };
+
+    for (size_t i = 0; i < lengthof(attrs); ++i) {
+        values[i] = SysCacheGetAttr(GSSQLLIMIT, tuple, attrs[i], &nulls[i]);
+    }
+
+    uint64 limitId = DatumGetInt64(values[0]);
+    uint64 ruleVersion = DatumGetInt64(values[11]);
+    SqlLimitStatsKey key;
+    SqlLimitStatsKeyInit(&key, 0, limitId, ruleVersion);
+    uint64 hitCount = 0;
+    uint64 rejectCount = 0;
+    uint64 currConcurrency = 0;
+    (void)SqlLimitStatsSnapshot(&key, &hitCount, &rejectCount, &currConcurrency);
+    values[13] = UInt64GetDatum(hitCount);
+    values[14] = UInt64GetDatum(rejectCount);
+    values[15] = UInt64GetDatum(currConcurrency);
+
+    tuplestore_putvalues(store, tupdesc, values, nulls);
+}
+
+// gs_select_sql_limit_v2(limit_id)
+Datum gs_select_sql_limit_v2(PG_FUNCTION_ARGS)
+{
+    if (!superuser()) {
+        aclcheck_error(ACLCHECK_NO_PRIV, ACL_KIND_PROC, "must be system admin to execute");
+    }
+    if (!u_sess->attr.attr_common.enable_sql_limit) {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE), (errmsg("enable_sql_limit is off, please set to on"))));
+    }
+    if (PG_ARGISNULL(0)) {
+        ereport(ERROR, (errmodule(MOD_WLM), errmsg("limitId can not be null.")));
+    }
+    if (fcinfo->resultinfo == NULL || !IsA(fcinfo->resultinfo, ReturnSetInfo)) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("set-valued function called in context that cannot accept a set")));
+    }
+
+    ReturnSetInfo *rsinfo = (ReturnSetInfo *)fcinfo->resultinfo;
+    TupleDesc tupdesc = InitializeSqlLimitV2ResultSet(rsinfo);
+    uint64 limitId = (uint64)PG_GETARG_INT64(0);
+    Relation rel = heap_open(GsSqlLimitRuleRelationId, AccessShareLock);
+    TupleDesc relDesc = RelationGetDescr(rel);
+    SysScanDesc scan = NULL;
+    HeapTuple tuple = GetSqlLimitRuleTuple(rel, limitId, relDesc, &scan);
+    if (!HeapTupleIsValid(tuple)) {
+        systable_endscan(scan);
+        heap_close(rel, AccessShareLock);
+        ereport(ERROR, (errmodule(MOD_WLM), errmsg("limitId %lu is not exist.", limitId)));
+    }
+    AppendSqlLimitV2Row(rsinfo->setResult, tupdesc, tuple);
+    systable_endscan(scan);
+    heap_close(rel, AccessShareLock);
+    tuplestore_donestoring(rsinfo->setResult);
+    return (Datum)0;
+}
+
+// gs_select_sql_limit_all_v2()
+Datum gs_select_sql_limit_all_v2(PG_FUNCTION_ARGS)
+{
+    if (!superuser()) {
+        aclcheck_error(ACLCHECK_NO_PRIV, ACL_KIND_PROC, "must be system admin to execute");
+    }
+    if (!u_sess->attr.attr_common.enable_sql_limit) {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE), (errmsg("enable_sql_limit is off, please set to on"))));
+    }
+    if (fcinfo->resultinfo == NULL || !IsA(fcinfo->resultinfo, ReturnSetInfo)) {
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("set-valued function called in context that cannot accept a set")));
+    }
+
+    ReturnSetInfo *rsinfo = (ReturnSetInfo *)fcinfo->resultinfo;
+    TupleDesc tupdesc = InitializeSqlLimitV2ResultSet(rsinfo);
+    Relation rel = heap_open(GsSqlLimitRuleRelationId, AccessShareLock);
+    SysScanDesc scan = systable_beginscan(rel, InvalidOid, false, NULL, 0, NULL);
+    HeapTuple tuple = NULL;
+    while (HeapTupleIsValid(tuple = systable_getnext(scan))) {
+        AppendSqlLimitV2Row(rsinfo->setResult, tupdesc, tuple);
+    }
+    systable_endscan(scan);
+    heap_close(rel, AccessShareLock);
+    tuplestore_donestoring(rsinfo->setResult);
+    return (Datum)0;
 }
 
 static void SqlLimitSighupHandler(SIGNAL_ARGS)

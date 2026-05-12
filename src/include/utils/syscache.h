@@ -177,8 +177,10 @@ enum SysCacheIdentifier {
     DBPRIVROLE,
     DBPRIVROLEPRIV,
     SETTYPOIDNAME,
-    GSSQLLIMITRULE
+    GSSQLLIMIT
 };
+#define GSSQLLIMITRULE GSSQLLIMIT
+
 struct cachedesc {
     Oid reloid;   /* OID of the relation being cached */
     Oid indoid;   /* OID of index relation for this cache */

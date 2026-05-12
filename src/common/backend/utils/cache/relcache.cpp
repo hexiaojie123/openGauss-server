@@ -154,6 +154,7 @@
 #include "catalog/gs_opt_model.h"
 #include "catalog/gs_global_chain.h"
 #include "catalog/gs_sql_limit.h"
+#include "catalog/gs_sql_limit_rule.h"
 #ifdef PGXC
 #include "catalog/pgxc_class.h"
 #include "catalog/gs_global_config.h"
@@ -369,6 +370,7 @@ static const FormData_pg_attribute Desc_pg_statistic_history[Natts_pg_statistic_
 static const FormData_pg_attribute Desc_pg_statistic_lock[Natts_pg_statistic_lock] = {Schema_pg_statistic_lock};
 
 static const FormData_pg_attribute Desc_gs_sql_limit[Natts_gs_sql_limit] = {Schema_gs_sql_limit};
+static const FormData_pg_attribute Desc_gs_sql_limit_rule[Natts_gs_sql_limit_rule] = {Schema_gs_sql_limit_rule};
 
 /* Please add to the array in ascending order of oid value */
 static struct CatalogRelationBuildParam catalogBuildParam[CATALOG_NUM] = {{DefaultAclRelationId,
@@ -715,6 +717,15 @@ static struct CatalogRelationBuildParam catalogBuildParam[CATALOG_NUM] = {{Defau
         false,
         Natts_gs_sql_limit,
         Desc_gs_sql_limit,
+        false,
+        true},
+    {GsSqlLimitRuleRelationId,
+        "gs_sql_limit_rule",
+        GsSqlLimitRuleRelationId_Rowtype_Id,
+        true,
+        false,
+        Natts_gs_sql_limit_rule,
+        Desc_gs_sql_limit_rule,
         false,
         true},
     {RlsPolicyRelationId,

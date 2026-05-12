@@ -1769,6 +1769,8 @@ static void knl_t_sql_limit_init(knl_t_sql_limit_context* sql_limit_cxt)
 {
     sql_limit_cxt->got_SIGHUP = false;
     sql_limit_cxt->shutdown_requested = false;
+    sql_limit_cxt->syscacheCallbackRegistered = false;
+    sql_limit_cxt->verifiedPdbSet = NULL;
 }
 
 static void knl_t_dms_context_init(knl_t_dms_context *dms_cxt)
@@ -2101,4 +2103,3 @@ void VerifyMemoryContext()
             gs_thread_self())));
     }
 }
-

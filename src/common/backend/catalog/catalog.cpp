@@ -68,6 +68,7 @@
 #include "catalog/pg_resource_pool.h"
 #include "catalog/pg_workload_group.h"
 #include "catalog/pg_app_workloadgroup_mapping.h"
+#include "catalog/gs_sql_limit_rule.h"
 #include "catalog/gs_sql_limit.h"
 #include "miscadmin.h"
 #include "storage/smgr/fd.h"
@@ -1068,7 +1069,7 @@ bool IsSharedRelation(Oid relationId)
         relationId == DbRoleSettingRelationId || relationId == PgJobRelationId || relationId == PgJobProcRelationId ||
         relationId == DataSourceRelationId || relationId == GSObsScanInfoRelationId ||
         relationId == SubscriptionRelationId || relationId == ReplicationOriginRelationId ||
-        relationId == GsSqlLimitRelationId) {
+        relationId == GsSqlLimitRelationId || relationId == GsSqlLimitRuleRelationId) {
         return true;
     }
     /* These are their indexes (see indexing.h) */
@@ -1096,7 +1097,8 @@ bool IsSharedRelation(Oid relationId)
         relationId == PgJobProcIdIndexId || relationId == DataSourceOidIndexId ||
         relationId == DataSourceNameIndexId || relationId == SubscriptionObjectIndexId ||
         relationId == SubscriptionNameIndexId || relationId == ReplicationOriginIdentIndex ||
-        relationId == ReplicationOriginNameIndex || relationId == GsSqlLimitIdIndex) {
+        relationId == ReplicationOriginNameIndex || relationId == GsSqlLimitIdIndex ||
+        relationId == GsSqlLimitEnableTypeHashIdIndex) {
         return true;
     }
     /* These are their toast tables and toast indexes (see toasting.h) */
